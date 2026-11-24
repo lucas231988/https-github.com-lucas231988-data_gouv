@@ -8,13 +8,14 @@ version = "0.1.0"
 description = "Reusable ingestion unit for the data.gouv.fr dataservices API"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["requests>=2.32,<3"]
+dependencies = ["requests>=2.32,<3", "streamlit>=1.50,<2", "pandas>=2.3,<3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9"]
 
 [project.scripts]
 data-gouv-ingest = "data_gouv_ingestion.cli:main"
+data-gouv-ui = "streamlit.web.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
