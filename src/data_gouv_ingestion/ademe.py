@@ -1,9 +1,28 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import requests
+
+
+DPE_TERTIAIRE_URL = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe-tertiaire"
+DPE_TERTIAIRE_DEFAULT_FIELDS = (
+    "numero_dpe",
+    "date_etablissement_dpe",
+    "classe_consommation_energie",
+    "consommation_energie",
+    "classe_estimation_ges",
+    "estimation_ges",
+    "annee_construction",
+    "surface_thermique_lot",
+    "secteur_activite",
+    "code_insee_commune_actualise",
+    "commune",
+    "code_postal",
+)
 
 
 class ADEMEDPEIngester:
@@ -66,3 +85,20 @@ class ADEMEDPEIngester:
 
             url = payload.get("next")
             params = {}
+
+    def ingest_ndjson(
+        self,
+        output: str | Path,
+        search: str | None = None,
+        size: int = 100,
+        fields: list[str] | None = None,
+        max_records: int | None = None,
+    ) -> int:
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        count = 0
+        with output_path.open("w", encoding="utf-8") as handle:
+            for record in self.iter_records(search, size, fields, max_records):
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+                count += 1
+        return count

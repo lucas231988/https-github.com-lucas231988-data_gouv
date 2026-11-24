@@ -1,6 +1,10 @@
 import json
 
-from data_gouv_ingestion.ademe import ADEMEDPEIngester
+from data_gouv_ingestion.ademe import (
+    ADEMEDPEIngester,
+    DPE_TERTIAIRE_DEFAULT_FIELDS,
+    DPE_TERTIAIRE_URL,
+)
 from data_gouv_ingestion.ingestion import DataserviceIngester
 
 
@@ -94,3 +98,21 @@ def test_ademe_record_pagination():
     records = list(ingester.iter_records(size=1))
 
     assert records == [{"numero_dpe": "1"}, {"numero_dpe": "2"}]
+
+
+def test_dpe_tertiaire_preset():
+    assert DPE_TERTIAIRE_URL.endswith("/dpe-tertiaire")
+    assert "numero_dpe" in DPE_TERTIAIRE_DEFAULT_FIELDS
+
+
+def test_ademe_ingest_ndjson(tmp_path):
+    ingester = ADEMEDPEIngester()
+    ingester.iter_records = lambda search=None, size=100, fields=None, max_records=None: iter([
+        {"numero_dpe": "1", "commune": "NÎMES"},
+    ])
+    output = tmp_path / "dpe-tertiaire.ndjson"
+
+    count = ingester.ingest_ndjson(output)
+
+    assert count == 1
+    assert json.loads(output.read_text(encoding="utf-8").splitlines()[0])["commune"] == "NÎMES"

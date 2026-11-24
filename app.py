@@ -1,10 +1,14 @@
 import json
 
 import pandas as pd
-import requests
 import streamlit as st
 
-from data_gouv_ingestion import ADEMEDPEIngester, DataserviceIngester
+from data_gouv_ingestion import (
+    ADEMEDPEIngester,
+    DPE_TERTIAIRE_DEFAULT_FIELDS,
+    DPE_TERTIAIRE_URL,
+    DataserviceIngester,
+)
 
 
 st.set_page_config(page_title="Open API Explorer", page_icon="🇫🇷", layout="wide")
@@ -55,7 +59,8 @@ if source == "data.gouv.fr dataservices":
         st.download_button("Download JSON", json.dumps(records, ensure_ascii=False, indent=2), "dataservices.json")
 
 else:
-    default_url = "https://data.ademe.fr/data-fair/api/v1/datasets/dpe-france"
+    preset = st.sidebar.selectbox("Dataset preset", ["DPE tertiaire", "Custom Data Fair URL"])
+    default_url = DPE_TERTIAIRE_URL if preset == "DPE tertiaire" else "https://data.ademe.fr/data-fair/api/v1/datasets/dpe-france"
     dataset_url = st.sidebar.text_input("Dataset API URL", default_url)
 
     prefix = "/api/v1/datasets/"
@@ -68,7 +73,7 @@ else:
     ingester = ADEMEDPEIngester(dataset_id=dataset_id, base_url=base_url)
 
     if st.sidebar.button("Load dataset", type="primary"):
-        with st.spinner("Loading dataset metadata and records..."):
+        with st.spinner("Loading dataset metadata..."):
             try:
                 metadata = ingester.metadata()
                 field_names = [item["key"] for item in metadata.get("schema", []) if item.get("key")]
@@ -89,12 +94,11 @@ else:
         size = st.slider("Rows per API page", 10, 1000, 100, 10)
         max_records = st.number_input("Maximum records", 1, 10000, 100, 100)
 
-        default_fields = [
-            key for key in ("numero_dpe", "annee_construction", "classe_consommation_energie",
-                            "classe_estimation_ges", "code_insee_commune_actualise",
-                            "latitude", "longitude") if key in field_names
-        ]
-        selected_fields = st.multiselect("Fields", field_names, default=default_fields or field_names[:10])
+        if preset == "DPE tertiaire":
+            defaults = [field for field in DPE_TERTIAIRE_DEFAULT_FIELDS if field in field_names]
+        else:
+            defaults = field_names[:10]
+        selected_fields = st.multiselect("Fields", field_names, default=defaults)
 
         if st.button("Fetch records", type="primary"):
             with st.spinner("Fetching records..."):
