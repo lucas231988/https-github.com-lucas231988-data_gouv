@@ -207,3 +207,7 @@ tests/test_ingestion.py                 Unit and mock tests
 ## Data usage
 
 Check each dataset's license and usage terms before large-scale ingestion or redistribution. Public availability does not remove attribution, licensing, or responsible-use obligations.
+
+## Azure deployment
+
+See the [Azure deployment guide](docs/azure-deployment/README.md) for recommended infrastructure, networking, security, and GitHub Actions CI/CD. The [architecture diagram](docs/azure-deployment/architecture.md) shows the proposed Azure setup.

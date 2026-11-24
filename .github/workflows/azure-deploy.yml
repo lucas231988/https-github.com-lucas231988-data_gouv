@@ -1,0 +1,124 @@
+name: Test and deploy to Azure Container Apps
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Validate container image build
+        run: docker build --tag open-french-api-explorer:test .
+
+  deploy:
+    name: Build and deploy
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_CONTAINER_APP: ${{ vars.AZURE_CONTAINER_APP }}
+      AZURE_CONTAINER_REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY }}
+      IMAGE_NAME: open-french-api-explorer
+      IMAGE_TAG: ${{ github.sha }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Azure configuration
+        run: |
+          : "${AZURE_CLIENT_ID:?Set the AZURE_CLIENT_ID Actions variable}"
+          : "${AZURE_TENANT_ID:?Set the AZURE_TENANT_ID Actions variable}"
+          : "${AZURE_SUBSCRIPTION_ID:?Set the AZURE_SUBSCRIPTION_ID Actions variable}"
+          : "${AZURE_RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP Actions variable}"
+          : "${AZURE_CONTAINER_APP:?Set the AZURE_CONTAINER_APP Actions variable}"
+          : "${AZURE_CONTAINER_REGISTRY:?Set the AZURE_CONTAINER_REGISTRY Actions variable}"
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Container Apps CLI extension
+        run: az extension add --name containerapp --upgrade
+
+      - name: Sign in to Azure Container Registry
+        run: az acr login --name "$AZURE_CONTAINER_REGISTRY"
+
+      - name: Build and push image
+        run: |
+          registry_server="${AZURE_CONTAINER_REGISTRY}.azurecr.io"
+          image="${registry_server}/${IMAGE_NAME}:${IMAGE_TAG}"
+          docker build --pull --tag "$image" .
+          docker push "$image"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+
+      - name: Update Azure Container App
+        run: |
+          az containerapp update \
+            --name "$AZURE_CONTAINER_APP" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --image "$IMAGE"
+
+      - name: Wait for the new revision
+        run: |
+          for attempt in $(seq 1 30); do
+            revision="$(az containerapp show \
+              --name "$AZURE_CONTAINER_APP" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --query properties.latestRevisionName \
+              --output tsv)"
+            state="$(az containerapp revision show \
+              --name "$AZURE_CONTAINER_APP" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --revision "$revision" \
+              --query properties.provisioningState \
+              --output tsv)"
+
+            if [ "$state" = "Provisioned" ]; then
+              echo "Revision $revision is provisioned."
+              exit 0
+            fi
+            if [ "$state" = "Failed" ]; then
+              echo "Revision $revision failed to provision."
+              exit 1
+            fi
+            echo "Revision $revision state: $state; checking again ($attempt/30)."
+            sleep 10
+          done
+          echo "Timed out waiting for the Container Apps revision."
+          exit 1
