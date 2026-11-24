@@ -1,5 +1,6 @@
 import json
 
+from data_gouv_ingestion.ademe import ADEMEDPEIngester
 from data_gouv_ingestion.ingestion import DataserviceIngester
 
 
@@ -65,3 +66,31 @@ def test_ingest_snapshot(tmp_path):
 
     assert count == 2
     assert json.loads(output.read_text(encoding="utf-8")) == [{"id": "1"}, {"id": "2"}]
+
+
+def test_ademe_metadata():
+    ingester = ADEMEDPEIngester()
+    ingester.session.get = lambda url, timeout: MockResponse({"id": "dpe-france", "count": 10728950})
+
+    metadata = ingester.metadata()
+
+    assert metadata["id"] == "dpe-france"
+    assert metadata["count"] == 10728950
+
+
+def test_ademe_record_pagination():
+    ingester = ADEMEDPEIngester()
+
+    def get(url, params, timeout):
+        if params:
+            return MockResponse({
+                "results": [{"numero_dpe": "1"}],
+                "next": "https://example.test/page-2",
+            })
+        return MockResponse({"results": [{"numero_dpe": "2"}], "next": None})
+
+    ingester.session.get = get
+
+    records = list(ingester.iter_records(size=1))
+
+    assert records == [{"numero_dpe": "1"}, {"numero_dpe": "2"}]
