@@ -24,18 +24,33 @@ if source == "data.gouv.fr dataservices":
 
     if st.sidebar.button("Load catalog", type="primary"):
         ingester = DataserviceIngester(page_size=page_size)
-        with st.spinner("Loading dataservices..."):
-            try:
-                records = []
+        progress = st.progress(0, text="Connecting to data.gouv.fr…")
+        status = st.status("Fetching dataservices", expanded=True)
+
+        try:
+            records = []
+            with status:
+                st.write("Searching the data.gouv.fr catalog…")
                 for record in ingester.iter_records(search=query or None):
                     records.append(record)
-                    if len(records) >= max_records:
+                    loaded = len(records)
+                    progress.progress(min(loaded / max_records, 1.0), text=f"Fetched {loaded:,} of {max_records:,} requested records")
+                    if loaded % 25 == 0:
+                        status.update(label=f"Fetching dataservices — {loaded:,} loaded")
+                        st.write(f"Downloaded {loaded:,} records…")
+                    if loaded >= max_records:
                         break
-            except Exception as error:
-                st.error(f"Could not load dataservices: {error}")
-                st.stop()
+        except Exception as error:
+            progress.empty()
+            status.update(label="Fetch failed", state="error", expanded=True)
+            status.write(str(error))
+            st.error(f"Could not load dataservices: {error}")
+            st.stop()
 
+        progress.progress(1.0, text=f"Complete — {len(records):,} records fetched")
+        status.update(label=f"Fetch complete — {len(records):,} dataservices", state="complete", expanded=False)
         st.success(f"Loaded {len(records)} dataservices")
+
         if not records:
             st.info("No dataservices matched this search.")
             st.stop()
@@ -73,13 +88,21 @@ else:
     ingester = ADEMEDPEIngester(dataset_id=dataset_id, base_url=base_url)
 
     if st.sidebar.button("Load dataset", type="primary"):
-        with st.spinner("Loading dataset metadata..."):
-            try:
+        progress = st.progress(0, text="Loading dataset metadata…")
+        status = st.status("Loading dataset", expanded=True)
+        try:
+            with status:
+                st.write("Reading dataset metadata and fields…")
                 metadata = ingester.metadata()
                 field_names = [item["key"] for item in metadata.get("schema", []) if item.get("key")]
-            except Exception as error:
-                st.error(f"Could not load dataset metadata: {error}")
-                st.stop()
+                progress.progress(0.35, text=f"Metadata loaded — {len(field_names)} fields found")
+                status.update(label="Dataset metadata loaded")
+        except Exception as error:
+            progress.empty()
+            status.update(label="Metadata load failed", state="error", expanded=True)
+            status.write(str(error))
+            st.error(f"Could not load dataset metadata: {error}")
+            st.stop()
 
         title = metadata.get("title", dataset_id)
         st.header(title)
@@ -101,15 +124,35 @@ else:
         selected_fields = st.multiselect("Fields", field_names, default=defaults)
 
         if st.button("Fetch records", type="primary"):
-            with st.spinner("Fetching records..."):
-                records = list(ingester.iter_records(
-                    search=query or None,
-                    size=size,
-                    fields=selected_fields or None,
-                    max_records=max_records,
-                ))
+            progress = st.progress(0, text="Connecting to the Data Fair API…")
+            status = st.status("Fetching records", expanded=True)
+            try:
+                records = []
+                with status:
+                    st.write("Requesting the first page…")
+                    for record in ingester.iter_records(
+                        search=query or None,
+                        size=size,
+                        fields=selected_fields or None,
+                        max_records=max_records,
+                    ):
+                        records.append(record)
+                        loaded = len(records)
+                        progress.progress(min(loaded / max_records, 1.0), text=f"Fetched {loaded:,} of {max_records:,} requested rows")
+                        if loaded % 25 == 0:
+                            status.update(label=f"Fetching records — {loaded:,} loaded")
+                            st.write(f"Downloaded {loaded:,} rows…")
+            except Exception as error:
+                progress.empty()
+                status.update(label="Fetch failed", state="error", expanded=True)
+                status.write(str(error))
+                st.error(f"Could not fetch records: {error}")
+                st.stop()
 
+            progress.progress(1.0, text=f"Complete — {len(records):,} rows fetched")
+            status.update(label=f"Fetch complete — {len(records):,} rows", state="complete", expanded=False)
             st.success(f"Loaded {len(records)} rows")
+
             if records:
                 table, raw = st.tabs(["Table", "Raw JSON"])
                 with table:
