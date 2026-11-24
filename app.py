@@ -85,9 +85,9 @@ else:
 
     base_url = dataset_url.split(prefix)[0].rstrip("/") + "/api/v1/datasets"
     dataset_id = dataset_url.split(prefix)[1].split("/")[0]
-    ingester = ADEMEDPEIngester(dataset_id=dataset_id, base_url=base_url)
 
     if st.sidebar.button("Load dataset", type="primary"):
+        ingester = ADEMEDPEIngester(dataset_id=dataset_id, base_url=base_url)
         progress = st.progress(0, text="Loading dataset metadata…")
         status = st.status("Loading dataset", expanded=True)
         try:
@@ -96,7 +96,7 @@ else:
                 metadata = ingester.metadata()
                 field_names = [item["key"] for item in metadata.get("schema", []) if item.get("key")]
                 progress.progress(0.35, text=f"Metadata loaded — {len(field_names)} fields found")
-                status.update(label="Dataset metadata loaded")
+                status.update(label="Dataset metadata loaded", state="complete", expanded=False)
         except Exception as error:
             progress.empty()
             status.update(label="Metadata load failed", state="error", expanded=True)
@@ -104,8 +104,24 @@ else:
             st.error(f"Could not load dataset metadata: {error}")
             st.stop()
 
-        title = metadata.get("title", dataset_id)
-        st.header(title)
+        st.session_state["datafair_loaded"] = {
+            "dataset_id": dataset_id,
+            "base_url": base_url,
+            "preset": preset,
+            "metadata": metadata,
+            "field_names": field_names,
+        }
+
+    loaded = st.session_state.get("datafair_loaded")
+    if loaded:
+        dataset_id = loaded["dataset_id"]
+        base_url = loaded["base_url"]
+        preset = loaded["preset"]
+        metadata = loaded["metadata"]
+        field_names = loaded["field_names"]
+        ingester = ADEMEDPEIngester(dataset_id=dataset_id, base_url=base_url)
+
+        st.header(metadata.get("title", dataset_id))
         st.caption(metadata.get("description", "")[:500])
 
         col1, col2, col3 = st.columns(3)
@@ -113,7 +129,9 @@ else:
         col2.metric("Fields", len(field_names))
         col3.metric("Visibility", metadata.get("visibility", "unknown"))
 
-        query = st.text_input("Search / filter text", placeholder="Example: 75, Paris, D")
+        st.divider()
+        st.subheader("Explore rows")
+        query = st.text_input("Search / filter text", placeholder="Example: 75, Paris, Vente")
         size = st.slider("Rows per API page", 10, 1000, 100, 10)
         max_records = st.number_input("Maximum records", 1, 10000, 100, 100)
 
@@ -137,11 +155,11 @@ else:
                         max_records=max_records,
                     ):
                         records.append(record)
-                        loaded = len(records)
-                        progress.progress(min(loaded / max_records, 1.0), text=f"Fetched {loaded:,} of {max_records:,} requested rows")
-                        if loaded % 25 == 0:
-                            status.update(label=f"Fetching records — {loaded:,} loaded")
-                            st.write(f"Downloaded {loaded:,} rows…")
+                        loaded_count = len(records)
+                        progress.progress(min(loaded_count / max_records, 1.0), text=f"Fetched {loaded_count:,} of {max_records:,} requested rows")
+                        if loaded_count % 25 == 0:
+                            status.update(label=f"Fetching records — {loaded_count:,} loaded")
+                            st.write(f"Downloaded {loaded_count:,} rows…")
             except Exception as error:
                 progress.empty()
                 status.update(label="Fetch failed", state="error", expanded=True)
